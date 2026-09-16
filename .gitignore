@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+*.tsbuildinfo
+
+# local agent tooling, not part of the SDK
+.agents/
+.claude/
+.codex/
+.cursor/
+.gemini/
+.github/copilot-instructions.md
+AGENTS.md
+CLAUDE.md
+skills-lock.json

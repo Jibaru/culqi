@@ -1,0 +1,71 @@
+{
+  "name": "@jibaru/culqi",
+  "version": "0.1.0",
+  "description": "Type-safe, zero-dependency TypeScript SDK for the Culqi payments API (Peru): charges, pre-authorizations, refunds, customers, cards, orders, plans, subscriptions, webhooks and browser checkout.",
+  "keywords": [
+    "culqi",
+    "payments",
+    "peru",
+    "yape",
+    "checkout",
+    "typescript",
+    "sdk"
+  ],
+  "license": "MIT",
+  "author": "Jibaru",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jibaru/culqi-sdk.git"
+  },
+  "homepage": "https://github.com/Jibaru/culqi-sdk#readme",
+  "bugs": "https://github.com/Jibaru/culqi-sdk/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./checkout": {
+      "import": {
+        "types": "./dist/checkout.d.ts",
+        "default": "./dist/checkout.js"
+      },
+      "require": {
+        "types": "./dist/checkout.d.cts",
+        "default": "./dist/checkout.cjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "test": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "eslint": "^9",
+    "tsup": "^8",
+    "typescript": "^5",
+    "typescript-eslint": "^8",
+    "vitest": "^3"
+  }
+}
