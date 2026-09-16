@@ -15,10 +15,10 @@ const TEST_CARD = {
 };
 
 describe.skipIf(!enabled)("Culqi integration environment", () => {
-  const culqi = new Culqi({
-    secretKey: secretKey ?? "",
-    publicKey: publicKey ?? "",
-  });
+  // The describe body runs even when skipped; construct only with real keys.
+  const culqi = enabled
+    ? new Culqi({ secretKey: secretKey as string, publicKey: publicKey as string })
+    : (undefined as unknown as Culqi);
   const email = `sdk-it-${Date.now()}@example.com`;
 
   it("tokenizes, charges, and refunds", async () => {
