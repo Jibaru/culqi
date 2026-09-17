@@ -6,7 +6,7 @@ Type-safe, zero-dependency TypeScript SDK for the [Culqi](https://culqi.com/) pa
 > official [docs](https://docs.culqi.com/) and [API reference](https://apidocs.culqi.com/),
 > and every endpoint is verified with integration tests against Culqi's test environment.
 
-- **Complete**: tokens, charges (incl. pre-authorization + capture), refunds, customers, saved cards, orders, recurrent plans & subscriptions, webhooks, browser checkout.
+- **Complete**: tokens, charges (incl. pre-authorization + capture), refunds, customers, saved cards, orders, recurrent plans & subscriptions, webhooks, browser checkout, optional AES/RSA payload encryption.
 - **Zero runtime dependencies**, native `fetch`, Node ≥ 18.
 - **Dual ESM/CJS**, full TypeScript types, typed error classes.
 - **Two entries**: `@jibaru/culqi` (server, secret key) and `@jibaru/culqi/checkout` (browser, public key) — server code never reaches your bundle.
@@ -105,6 +105,22 @@ if (event.type === "charge.creation.succeeded") {
   const charge = await culqi.charges.get((event.data as { id: string }).id);
 }
 ```
+
+### AES/RSA payload encryption (optional)
+
+A second protection layer on top of TLS, [documented by Culqi](https://docs.culqi.com/es/documentacion/pagos-online/llaves_rsa/). Generate keys in CulqiPanel → Desarrollo → RSA Keys and pass them to the client — every request body is then encrypted (AES-256-GCM + RSA-OAEP-SHA256, same wire format as the official SDKs) and the `x-culqi-rsa-id` header is sent automatically:
+
+```ts
+const culqi = new Culqi({
+  secretKey: process.env.CULQI_SECRET_KEY,
+  encryption: {
+    rsaId: process.env.CULQI_RSA_ID,
+    rsaPublicKey: process.env.CULQI_RSA_PUBLIC_KEY, // PEM
+  },
+});
+```
+
+Uses WebCrypto — works in Node ≥ 18 and edge runtimes, still zero dependencies.
 
 ## Error handling
 

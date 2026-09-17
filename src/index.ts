@@ -1,3 +1,5 @@
+import type { EncryptionConfig } from "./encryption.js";
+import { PayloadEncryptor } from "./encryption.js";
 import type { FetchLike } from "./http.js";
 import { HttpClient } from "./http.js";
 import { Cards } from "./resources/cards.js";
@@ -18,12 +20,17 @@ export interface CulqiConfig {
   apiBaseUrl?: string;
   /** Override for `https://secure.culqi.com/v2` (tokenization host). */
   secureBaseUrl?: string;
+  /**
+   * Optional AES/RSA payload encryption (CulqiPanel → Desarrollo → RSA Keys).
+   * When set, request bodies are encrypted and `x-culqi-rsa-id` is sent.
+   */
+  encryption?: EncryptionConfig;
   fetch?: FetchLike;
 }
 
 const API_BASE_URL = "https://api.culqi.com/v2";
 const SECURE_BASE_URL = "https://secure.culqi.com/v2";
-const USER_AGENT = "jibaru-culqi-sdk/0.1.0";
+const USER_AGENT = "jibaru-culqi-sdk/0.2.0";
 
 /**
  * Culqi API client.
@@ -58,12 +65,17 @@ export class Culqi {
       throw new Error("Culqi requires at least one of `secretKey` or `publicKey`");
     }
 
+    const encryptor = config.encryption
+      ? new PayloadEncryptor(config.encryption)
+      : undefined;
+
     this.#api = config.secretKey
       ? new HttpClient({
           key: config.secretKey,
           baseUrl: config.apiBaseUrl ?? API_BASE_URL,
           userAgent: USER_AGENT,
           ...(config.fetch && { fetch: config.fetch }),
+          ...(encryptor && { encryptor }),
         })
       : null;
     this.#secure = config.publicKey
@@ -72,6 +84,7 @@ export class Culqi {
           baseUrl: config.secureBaseUrl ?? SECURE_BASE_URL,
           userAgent: USER_AGENT,
           ...(config.fetch && { fetch: config.fetch }),
+          ...(encryptor && { encryptor }),
         })
       : null;
   }
@@ -119,6 +132,8 @@ export class Culqi {
 export * from "./errors.js";
 export * from "./types.js";
 export * from "./webhooks.js";
+export { PayloadEncryptor } from "./encryption.js";
+export type { EncryptionConfig, EncryptedPayload } from "./encryption.js";
 export type { CreateTokenParams } from "./resources/tokens.js";
 export type { CreateChargeParams, ListChargesParams } from "./resources/charges.js";
 export type { CreateRefundParams } from "./resources/refunds.js";

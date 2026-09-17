@@ -164,6 +164,23 @@ Event types include `charge.creation.succeeded`, `refund.creation.succeeded`,
 `parseWebhookEvent` handles both. Localhost is unreachable for Culqi: use a
 tunnel (ngrok/cloudflared) during development.
 
+### 6. AES/RSA payload encryption (optional hardening)
+
+Culqi supports encrypting request payloads on top of TLS
+(https://docs.culqi.com/es/documentacion/pagos-online/llaves_rsa/). Generate
+keys in CulqiPanel → Desarrollo → RSA Keys, then:
+
+```ts
+const culqi = new Culqi({
+  secretKey: process.env.CULQI_SECRET_KEY!,
+  encryption: { rsaId: process.env.CULQI_RSA_ID!, rsaPublicKey: process.env.CULQI_RSA_PUBLIC_KEY! },
+});
+```
+
+The SDK handles the wire format (AES-256-GCM with the GCM tag stripped,
+key/IV wrapped with RSA-OAEP-SHA256, `x-culqi-rsa-id` header). Only enable it
+if the merchant has RSA keys configured in the panel.
+
 ## Pitfalls checklist
 
 - **Two hosts.** Tokens go to `secure.culqi.com/v2`; everything else to

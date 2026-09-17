@@ -1,3 +1,4 @@
+import type { PayloadEncryptor } from "./encryption.js";
 import { CulqiConnectionError, culqiErrorFromResponse } from "./errors.js";
 
 export type FetchLike = (
@@ -27,17 +28,20 @@ export class HttpClient {
   readonly #baseUrl: string;
   readonly #fetch: FetchLike;
   readonly #userAgent: string;
+  readonly #encryptor: PayloadEncryptor | null;
 
   constructor(options: {
     key: string;
     baseUrl: string;
     fetch?: FetchLike;
     userAgent: string;
+    encryptor?: PayloadEncryptor;
   }) {
     this.#key = options.key;
     this.#baseUrl = options.baseUrl.replace(/\/$/, "");
     this.#fetch = options.fetch ?? (globalThis.fetch as FetchLike);
     this.#userAgent = options.userAgent;
+    this.#encryptor = options.encryptor ?? null;
   }
 
   async request<T>(
@@ -57,17 +61,24 @@ export class HttpClient {
       if (qs) url += `?${qs}`;
     }
 
+    let payload = body === undefined ? undefined : JSON.stringify(body);
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.#key}`,
+      "Content-Type": "application/json",
+      "User-Agent": this.#userAgent,
+      ...options?.headers,
+    };
+    if (payload !== undefined && this.#encryptor) {
+      payload = JSON.stringify(await this.#encryptor.encrypt(payload));
+      headers["x-culqi-rsa-id"] = this.#encryptor.rsaId;
+    }
+
     let response;
     try {
       response = await this.#fetch(url, {
         method,
-        headers: {
-          Authorization: `Bearer ${this.#key}`,
-          "Content-Type": "application/json",
-          "User-Agent": this.#userAgent,
-          ...options?.headers,
-        },
-        ...(body !== undefined && { body: JSON.stringify(body) }),
+        headers,
+        ...(payload !== undefined && { body: payload }),
         ...(options?.signal && { signal: options.signal }),
       });
     } catch (cause) {
