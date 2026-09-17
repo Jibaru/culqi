@@ -122,10 +122,10 @@ try {
 
 ## Agent skill
 
-This repo ships an [Agent Skill](https://github.com/Jibaru/culqi-sdk/tree/main/skills/integrate-culqi) that teaches coding agents (Claude Code, Cursor, etc.) to integrate Culqi correctly — flows, pitfalls, and test cards included:
+This repo ships an [Agent Skill](https://github.com/Jibaru/culqi/tree/main/skills/integrate-culqi) that teaches coding agents (Claude Code, Cursor, etc.) to integrate Culqi correctly — flows, pitfalls, and test cards included:
 
 ```bash
-npx skills add Jibaru/culqi-sdk --skill=integrate-culqi
+npx skills add Jibaru/culqi --skill=integrate-culqi
 ```
 
 ## Development

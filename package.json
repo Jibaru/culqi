@@ -15,10 +15,10 @@
   "author": "Jibaru",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Jibaru/culqi-sdk.git"
+    "url": "git+https://github.com/Jibaru/culqi.git"
   },
-  "homepage": "https://github.com/Jibaru/culqi-sdk#readme",
-  "bugs": "https://github.com/Jibaru/culqi-sdk/issues",
+  "homepage": "https://github.com/Jibaru/culqi#readme",
+  "bugs": "https://github.com/Jibaru/culqi/issues",
   "type": "module",
   "engines": {
     "node": ">=18"
