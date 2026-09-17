@@ -121,7 +121,11 @@ Cards only — Yape does not support pre-authorization. Holds expire (industry
 norm ~7 days; confirm the exact window with Culqi for production). The
 customer sees the amount held from step 1: say so in your UI.
 
-### 4. Card-on-file for one-click payments
+### 4. One-click payments (card-on-file)
+
+**First purchase** — the user checks out normally and opts in to saving the
+card ("remember this card"). Save the token as a card first, then charge the
+saved card — one code path for both the first and every later purchase:
 
 ```ts
 const customer = await culqi.customers.create({
@@ -132,9 +136,24 @@ const card = await culqi.cards.create({
   customer_id: customer.id,
   token_id: tokenId, // saving does not charge
 });
-// later, without re-entering the card:
-await culqi.charges.create({ ...params, source_id: card.id });
+const charge = await culqi.charges.create({ ...params, source_id: card.id });
+// persist card.id against your user
 ```
+
+**Every later purchase** — no card form at all, just a "Pay" button:
+
+```ts
+await culqi.charges.create({ ...params, source_id: savedCardId }); // crd_...
+```
+
+Notes (verified against the integration environment):
+
+- A token can be used for a charge AND to create a card, in either order —
+  tokens are not one-shot across operations. Charge-then-save also works.
+- A charge with `source_id: crd_...` can fail at that moment (expired card,
+  no funds) — handle `CulqiCardError` on the one-click path too.
+- Only save the card with explicit user consent, and store nothing but the
+  `crd_...` / `cus_...` ids — the card lives in Culqi's vault.
 
 ### 5. Webhooks (Culqi does NOT sign them)
 
@@ -194,8 +213,11 @@ if the merchant has RSA keys configured in the panel.
   `/v2/recurrent/plans/*` (the SDK does).
 - **Order initial state varies**: `created` (with `confirm: false`) or
   `pending` — treat both as "not yet paid".
-- **Idempotency is yours.** Culqi does not document an idempotency-key header;
-  guard double-submits yourself (disable buttons, dedupe by your order id).
+- **Idempotency is yours — and tokens are NOT single-use.** Verified: the same
+  token can be charged twice, both succeeding. A double submit of the same
+  `tokenId` is a double charge. Culqi documents no idempotency-key header;
+  dedupe server-side by your own order/booking id before calling
+  `charges.create`, and disable the pay button after the first click.
 - **3DS**: in production some issuers require it; the charge response asks for
   authentication and you retry with `authentication_3DS` fields. See
   https://docs.culqi.com/ (Culqi 3DS).
