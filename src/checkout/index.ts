@@ -79,19 +79,20 @@ export interface OpenCheckoutOptions {
   /** Required for embedded mode: id (without `#`) of the container element. */
   containerId?: string;
 /**
-   * Pre-created order (`ord_...`). Without it the modal shows card fields only:
-   * Yape, wallets and Cuotealo appear only when Checkout receives an order.
-   * Those methods finish through `onOrder`, not `onToken`.
+   * Pre-created order (`ord_...`), required by wallets, Cuotealo, PagoEfectivo, bank apps
+   * and agents; those finish through `onOrder`, not `onToken`. Yape does NOT need it:
+   * it is a token method and only needs the amount to reach 600 (S/ 6.00).
    */
   orderId?: string;
   installments?: boolean;
+  /** Defaults to `{ tarjeta: true, yape: true }`. Yape still needs `amount >= 600`. */
   paymentMethods?: PaymentMethods;
   appearance?: Record<string, unknown>;
-  /** Cards always resolve here. */
+  /** Cards and Yape resolve here. */
   onToken: (token: CheckoutToken) => void;
   /**
-   * Yape and the other order-based methods resolve here. It means "the modal finished",
-   * not "the money arrived": confirm with `orders.get(id).state === "paid"` server-side.
+   * Order-based methods (wallets, Cuotealo, PagoEfectivo…) resolve here. It means "the modal
+   * finished", not "the money arrived": confirm with `orders.get(id).state === "paid"`.
    */
   onOrder?: (order: { id: string }) => void;
   onError: (error: CheckoutError) => void;

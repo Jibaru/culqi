@@ -37,7 +37,7 @@ own server — tokenize in the browser with Culqi Checkout.
 ## Architecture: every flow is token-first
 
 ```
-Browser ── card data ──> Culqi (checkout script) ──> token (tkn_...)
+Browser ── card or Yape ─> Culqi (checkout script) ──> token (tkn_...)
 Browser ── token id ───> Your server
 Server ── token + sk ──> Culqi API ──> charge / saved card / ...
 ```
@@ -46,12 +46,11 @@ Server ── token + sk ──> Culqi API ──> charge / saved card / ...
 
 | You need | Flow | Sync? |
 |---|---|---|
-| Charge a card now | `charges.create` | Yes — response is final |
+| Charge a card or Yape now | `charges.create` | Yes — response is final (Yape needs amount >= 600) |
 | Hold now, charge on approval | `charges.create({ capture: false })` → `charges.capture` | Yes |
 | Money back / release a hold | `refunds.create` | Yes (bank settlement takes days in prod) |
 | One-click repeat payments | `customers` + `cards`, then charge with `crd_...` | Yes |
-| Show Yape / wallets / Cuotéalo in Checkout | `orders.create` **first**, then open Checkout with that `ord_...` | Order resolves — see recipe 3 |
-| Cash / bank-app payments (PagoEfectivo etc.) | `orders.create` + webhook | **No — webhook or polling required** |
+| Wallets, Cuotéalo, PagoEfectivo, bank apps, agents | `orders.create` **first**, then Checkout with that `ord_...` | **No — webhook or polling required** |
 | Recurring billing | `plans` + `subscriptions` (under `/v2/recurrent/`) | — |
 
 ## Recipes
@@ -102,62 +101,71 @@ For card/Yape charges you do NOT need a webhook to know the payment happened —
 the synchronous response is authoritative. Webhooks are the safety net for
 "my server crashed between charging and persisting".
 
-### 3. Yape (and every non-card method): the order gates the UI
+### 3. Yape: it is the amount, not the order
 
-`paymentMethods: { yape: true }` is **not** enough — it is already the SDK default.
-If Checkout opens without `settings.order`, the modal renders card fields only, no tabs.
-Culqi says it plainly: *"si el parámetro order se encuentra vacío, solamente mostrará pago con
-tarjetas"*.
+Yape is a token method, exactly like a card: the buyer pays inside the modal, you get a
+`tkn_...` in `onToken`, and you charge it with `charges.create`. No order, no webhook.
 
-So the order comes first, on the server:
+The one thing that hides it is the amount. **Below S/ 6.00 the modal renders card fields only**,
+and it does so silently — no error, no warning, just no Yape tab. Measured against both the test
+and the live environment, with no order in play:
 
-```ts
-const order = await culqi.orders.create({
-  amount: 1200,            // >= 600. Below that: "El valor debe ser mayor o igual que '600'"
-  currency_code: "PEN",
-  description: "Marco de dos flores",
-  order_number: myOrderId, // your id; it comes back in the webhook
-  expiration_date: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
-  client_details: {
-    first_name, last_name, email,
-    phone_number: "9XXXXXXXX", // required -> your UI must ask for a phone
-  },
-  metadata: { pedido: myOrderId },
-});
-```
-
-Then hand it to Checkout. Card and Yape now share one modal, but they finish through
-**different callbacks**:
+| Amount | Yape tab |
+|---|---|
+| S/ 1.00 | no |
+| S/ 5.00 | no |
+| S/ 5.99 | no |
+| S/ 6.00 | **yes** |
+| S/ 12.00 | **yes** |
 
 ```ts
 openCheckout({
-  publicKey, title: "My Store", amount: 1200, currency: "PEN",
-  orderId: order.id,                        // this is what makes the Yape tab appear
-  paymentMethods: { tarjeta: true, yape: true },
-  onToken: (token) => chargeOnServer(token.id),   // card -> charges.create, as always
-  onOrder: () => confirmOrderOnServer(myOrderId), // Yape -> the ORDER got paid
+  publicKey, title: "My Store",
+  amount: 600,               // < 600 -> cards only, no matter what you pass below
+  currency: "PEN",           // required for Yape
+  paymentMethods: { tarjeta: true, yape: true },  // already the SDK default
+  onToken: (token) => chargeOnServer(token.id),   // card AND Yape end up here
   onError: (err) => show(err.user_message),
 });
 ```
 
-`onOrder` only tells you the modal finished; it is not proof of payment. Ask the API:
+If your cheapest product costs less than S/ 6.00, no flag will bring Yape back: raise the price
+or tell the buyer that item is card-only.
+
+**Don't debug this the way I did.** A missing Yape tab at S/ 5.00 looks exactly like a
+configuration problem, and the docs sentence *"si el parámetro order se encuentra vacío,
+solamente mostrará pago con tarjetas"* makes `orders.create` look like the answer. It is not —
+that line is about PagoEfectivo, wallets and Cuotéalo (recipe 4). Change one variable at a
+time: same amount with and without the order, then same setup at two amounts.
+
+### 4. Orders: PagoEfectivo, wallets, bank apps, agents, Cuotéalo
+
+These methods *do* need an `ord_...` in `settings.order`, and the order carries two
+constraints the API only mentions when it rejects you: `amount` of at least 600, and a real
+`client_details.phone_number`, so your UI has to ask for a phone.
 
 ```ts
-const fresh = await culqi.orders.get(order.id);
-if (fresh.state === "paid") markPaid(myOrderId); // idempotent: the webhook may arrive too
+const order = await culqi.orders.create({
+  amount: 1200,
+  currency_code: "PEN",
+  description: "Two flowers frame",
+  order_number: myOrderId,   // your id; it comes back in the webhook
+  expiration_date: Math.floor(Date.now() / 1000) + 2 * 60 * 60,
+  client_details: { first_name, last_name, email, phone_number: "9XXXXXXXX" },
+  metadata: { pedido: myOrderId },
+});
+
+openCheckout({ ...opts, orderId: order.id, onOrder: () => confirmOnServer(myOrderId) });
 ```
 
-Consequences worth planning for:
+`onOrder` means "the modal finished", not "the money arrived" — confirm server-side with
+`orders.get(id).state === "paid"`, idempotently, because the webhook may get there first.
 
-- **Minimum S/ 6.00.** A S/ 5.00 product cannot offer Yape at all. Either raise the price or
-  hide the method for that item.
-- **You need a phone number** before opening Checkout. Ask for it as an optional field and
-  create the order only when it is there; with no phone, offer cards.
-- **Orphan orders are normal.** A buyer who picks the card tab leaves the order unpaid, and one
-  who closes the modal leaves it too. Reuse the same order while the cart does not change, and
-  let it expire.
+Orders you create and nobody pays stay `pending` in CulqiPanel next to the real charge, which
+looks like a duplicate sale to whoever reads the dashboard. Keep expirations short, and delete
+the order (`orders.delete`) if the buyer ends up paying another way.
 
-### 4. Pre-authorization: hold now, charge on approval
+### 5. Pre-authorization: hold now, charge on approval
 
 ```ts
 const hold = await culqi.charges.create({ ...params, capture: false });
@@ -177,7 +185,7 @@ Cards only — Yape does not support pre-authorization. Holds expire (industry
 norm ~7 days; confirm the exact window with Culqi for production). The
 customer sees the amount held from step 1: say so in your UI.
 
-### 5. One-click payments (card-on-file)
+### 6. One-click payments (card-on-file)
 
 **First purchase** — the user checks out normally and opts in to saving the
 card ("remember this card"). Save the token as a card first, then charge the
@@ -211,7 +219,7 @@ Notes (verified against the integration environment):
 - Only save the card with explicit user consent, and store nothing but the
   `crd_...` / `cus_...` ids — the card lives in Culqi's vault.
 
-### 6. Webhooks (Culqi does NOT sign them)
+### 7. Webhooks (Culqi does NOT sign them)
 
 There is no HMAC signature header. Defend in two layers:
 
@@ -261,7 +269,7 @@ if (event.type.startsWith("order.") && id) {
 `data` may arrive as a JSON *string* — `parseWebhookEvent` handles both. Localhost is
 unreachable for Culqi: use a tunnel (ngrok/cloudflared) during development.
 
-### 7. AES/RSA payload encryption (optional hardening)
+### 8. AES/RSA payload encryption (optional hardening)
 
 Culqi supports encrypting request payloads on top of TLS
 (https://docs.culqi.com/es/documentacion/pagos-online/llaves_rsa/). Generate

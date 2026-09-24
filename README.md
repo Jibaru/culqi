@@ -79,22 +79,24 @@ const card = await culqi.cards.create({ customer_id: customer.id, token_id });
 await culqi.charges.create({ ...params, source_id: card.id });
 ```
 
-### Orders: Yape, wallets, PagoEfectivo, bank apps, agents
+### Orders: wallets, Cuotéalo, PagoEfectivo, bank apps, agents
 
 ```ts
 const order = await culqi.orders.create({ amount, currency_code: "PEN", description, order_number, client_details, expiration_date });
 // payment happens outside your app -> listen for the `order.status.changed` webhook
 ```
 
-Checkout shows the Yape tab **only** when it receives the order, so create it before opening
-the modal and pass `orderId`; those payments come back through `onOrder` instead of
-`onToken`. Two limits the API only mentions when it rejects you: `amount` must be at least
-600 (S/ 6.00) and `client_details.phone_number` is required.
+Wallets, Cuotéalo, PagoEfectivo, bank apps and agents need the order in `orderId`, and come
+back through `onOrder` instead of `onToken`. Two limits the API only mentions when it rejects
+you: `amount` must be at least 600 (S/ 6.00) and `client_details.phone_number` is required.
 
 ```ts
 openCheckout({ ...opts, orderId: order.id, onOrder: () => confirmOnServer(order.id) });
 // onOrder means "the modal finished" -> verify with orders.get(id).state === "paid"
 ```
+
+**Yape needs none of this.** It is a token method like a card; it only disappears from the
+modal when the amount is under 600 (S/ 6.00).
 
 ### Subscriptions
 

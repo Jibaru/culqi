@@ -33,9 +33,10 @@ export interface ListOrdersParams extends PaginationParams {
 }
 
 /**
- * Orders power every non-card method: Yape, wallets, mobile banking, agents,
- * PagoEfectivo and Cuotealo. Checkout only renders those tabs when it receives the
- * `ord_...`, so the order is created before the modal opens, not after.
+ * Orders power the asynchronous methods: wallets, mobile banking, agents, PagoEfectivo
+ * and Cuotealo. Checkout renders those tabs only when it receives the `ord_...`, so the
+ * order is created before the modal opens, not after. Yape does NOT need one — it is a
+ * token method, it only needs the amount to reach 600.
  *
  * The order starts in `created`/`pending`; payment arrives through the
  * `order.status.changed` webhook or by polling `get()` for `state === "paid"`.
