@@ -107,10 +107,15 @@ await culqi.subscriptions.create({ card_id, plan_id: planId, tyc: true });
 
 ### Webhooks
 
-Culqi does **not** sign webhooks (no HMAC). Put a private token in the webhook URL and re-fetch the resource before trusting the payload:
+Culqi does **not** sign webhooks (no HMAC), but the panel can send credentials: turn on
+"Activar autenticación" when creating the webhook (the username is capped at 20 characters) and
+check them with `verifyWebhookBasicAuth`, which compares in constant time. Then re-fetch the
+resource before trusting the payload:
 
 ```ts
-import { parseWebhookEvent } from "@jibaru/culqi";
+import { parseWebhookEvent, verifyWebhookBasicAuth } from "@jibaru/culqi";
+
+if (!verifyWebhookBasicAuth(req, { username, password })) return new Response(null, { status: 401 });
 
 const event = parseWebhookEvent(rawBody);
 if (event.type === "charge.creation.succeeded") {

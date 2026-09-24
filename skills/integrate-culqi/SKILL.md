@@ -221,16 +221,21 @@ Notes (verified against the integration environment):
 
 ### 7. Webhooks (Culqi does NOT sign them)
 
-There is no HMAC signature header. Defend in two layers:
+There is no HMAC signature header, but the panel does offer credentials. When you create the
+webhook, turn on **"Activar autenticación"** and set a user and password — Culqi then sends them
+as HTTP Basic auth. The username field is capped at **20 characters**, so an email does not fit;
+use something like `culqi-hook`.
 
 ```ts
-import { parseWebhookEvent } from "@jibaru/culqi";
+import { parseWebhookEvent, verifyWebhookBasicAuth } from "@jibaru/culqi";
 
-// URL registered in CulqiPanel -> Eventos -> Webhooks:
-//   https://yourapp.com/webhooks/culqi?token=<long random secret>
 export async function handler(req: Request) {
-  if (new URL(req.url).searchParams.get("token") !== process.env.WEBHOOK_TOKEN)
+  if (!verifyWebhookBasicAuth(req, {
+    username: process.env.CULQI_WEBHOOK_USER!,
+    password: process.env.CULQI_WEBHOOK_PASSWORD!,
+  })) {
     return new Response(null, { status: 401 });
+  }
 
   const event = parseWebhookEvent(await req.text());
   // The payload is a hint, not proof — re-fetch before acting:
@@ -241,6 +246,11 @@ export async function handler(req: Request) {
   return Response.json({ received: true }); // 2xx fast, or Culqi retries
 }
 ```
+
+`verifyWebhookBasicAuth` compares in constant time and takes either the `Request` or the raw
+header string. If the panel you are on has no auth toggle, the fallback is a long random token
+in the URL (`?token=...`) checked the same way. Either way, the credential only proves *who
+called*; the payload still gets re-fetched below.
 
 **Subscribe to the right events in CulqiPanel.** This bites people:
 `order.creation.succeeded` fires when *you* create the order, before anyone pays, so on its
