@@ -40,7 +40,14 @@ function stubCheckout() {
     return instance;
   });
   vi.stubGlobal("window", { CulqiCheckout });
-  return { calls, instance };
+
+  const lastSettings = () => {
+    const call = calls.at(-1);
+    if (!call) throw new Error("openCheckout was never called");
+    return call.config.settings as Record<string, unknown>;
+  };
+
+  return { calls, instance, lastSettings };
 }
 
 describe("openCheckout config", () => {
@@ -55,21 +62,19 @@ describe("openCheckout config", () => {
     onError: () => {},
   };
 
-  it("passes the order id as settings.order (what makes Yape appear)", () => {
-    const { calls } = stubCheckout();
+  it("passes the order id as settings.order (wallets, Cuotealo, PagoEfectivo)", () => {
+    const { lastSettings } = stubCheckout();
     openCheckout({ ...base, orderId: "ord_test_1" });
-    const settings = calls[0].config.settings as Record<string, unknown>;
-    expect(settings.order).toBe("ord_test_1");
+    expect(lastSettings().order).toBe("ord_test_1");
   });
 
   it("omits settings.order when there is no order", () => {
-    const { calls } = stubCheckout();
+    const { lastSettings } = stubCheckout();
     openCheckout(base);
-    const settings = calls[0].config.settings as Record<string, unknown>;
-    expect(settings).not.toHaveProperty("order");
+    expect(lastSettings()).not.toHaveProperty("order");
   });
 
-  it("routes a paid order to onOrder and a card to onToken", () => {
+  it("routes an order to onOrder and a token to onToken", () => {
     const { instance } = stubCheckout();
     const onToken = vi.fn();
     const onOrder = vi.fn();
