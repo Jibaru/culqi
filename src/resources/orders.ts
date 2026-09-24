@@ -11,6 +11,7 @@ import type {
 } from "../types.js";
 
 export interface CreateOrderParams {
+  /** At least 600 (S/ 6.00): Culqi rejects smaller orders. */
   amount: AmountInCents;
   currency_code: CurrencyCode;
   description: string;
@@ -32,9 +33,17 @@ export interface ListOrdersParams extends PaginationParams {
 }
 
 /**
- * Orders power asynchronous payment methods (PagoEfectivo, mobile banking,
- * agents, Cuotealo). The order starts in `created`/`pending` and you learn
- * about payment through the `order.status.changed` webhook or by polling.
+ * Orders power every non-card method: Yape, wallets, mobile banking, agents,
+ * PagoEfectivo and Cuotealo. Checkout only renders those tabs when it receives the
+ * `ord_...`, so the order is created before the modal opens, not after.
+ *
+ * The order starts in `created`/`pending`; payment arrives through the
+ * `order.status.changed` webhook or by polling `get()` for `state === "paid"`.
+ *
+ * Two constraints the API only reveals when it rejects you:
+ * - `amount` must be at least 600 (S/ 6.00 or $ 6.00).
+ * - `client_details.phone_number` is required, so the UI has to ask for a phone.
+ *
  * @see https://docs.culqi.com/es/documentacion/pagos-online/ordenes-de-pago/resumen/
  */
 export class Orders {

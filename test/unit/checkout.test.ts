@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { loadCheckoutScript, openCheckout } from "../../src/checkout/index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  loadCheckoutScript,
+  openCheckout,
+  type CulqiCheckoutInstance,
+} from "../../src/checkout/index.js";
 
 describe("checkout entry (outside a browser)", () => {
   it("loadCheckoutScript rejects in Node", async () => {
@@ -17,5 +21,68 @@ describe("checkout entry (outside a browser)", () => {
         onError: () => {},
       })
     ).toThrow(/not loaded/);
+  });
+});
+
+/** Minimal stand-in for the script Culqi injects. */
+function stubCheckout() {
+  const calls: { publicKey: string; config: Record<string, unknown> }[] = [];
+  const instance: CulqiCheckoutInstance = {
+    open: vi.fn(),
+    close: vi.fn(),
+    culqi: () => {},
+    token: null,
+    order: null,
+    error: null,
+  };
+  const CulqiCheckout = vi.fn((publicKey: string, config: Record<string, unknown>) => {
+    calls.push({ publicKey, config });
+    return instance;
+  });
+  vi.stubGlobal("window", { CulqiCheckout });
+  return { calls, instance };
+}
+
+describe("openCheckout config", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const base = {
+    publicKey: "pk_test_x",
+    title: "Store",
+    amount: 1200,
+    currency: "PEN",
+    onToken: () => {},
+    onError: () => {},
+  };
+
+  it("passes the order id as settings.order (what makes Yape appear)", () => {
+    const { calls } = stubCheckout();
+    openCheckout({ ...base, orderId: "ord_test_1" });
+    const settings = calls[0].config.settings as Record<string, unknown>;
+    expect(settings.order).toBe("ord_test_1");
+  });
+
+  it("omits settings.order when there is no order", () => {
+    const { calls } = stubCheckout();
+    openCheckout(base);
+    const settings = calls[0].config.settings as Record<string, unknown>;
+    expect(settings).not.toHaveProperty("order");
+  });
+
+  it("routes a paid order to onOrder and a card to onToken", () => {
+    const { instance } = stubCheckout();
+    const onToken = vi.fn();
+    const onOrder = vi.fn();
+    openCheckout({ ...base, orderId: "ord_test_1", onToken, onOrder });
+
+    instance.order = { id: "ord_test_1" };
+    instance.culqi();
+    expect(onOrder).toHaveBeenCalledWith({ id: "ord_test_1" });
+    expect(onToken).not.toHaveBeenCalled();
+
+    instance.order = null;
+    instance.token = { id: "tkn_test_1", email: "a@b.c" };
+    instance.culqi();
+    expect(onToken).toHaveBeenCalledWith({ id: "tkn_test_1", email: "a@b.c" });
   });
 });

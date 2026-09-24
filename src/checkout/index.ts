@@ -78,17 +78,31 @@ export interface OpenCheckoutOptions {
   mode?: "modal" | "embedded";
   /** Required for embedded mode: id (without `#`) of the container element. */
   containerId?: string;
-  /** For non-card methods that require a pre-created order (`ord_...`). */
+/**
+   * Pre-created order (`ord_...`). Without it the modal shows card fields only:
+   * Yape, wallets and Cuotealo appear only when Checkout receives an order.
+   * Those methods finish through `onOrder`, not `onToken`.
+   */
   orderId?: string;
   installments?: boolean;
   paymentMethods?: PaymentMethods;
   appearance?: Record<string, unknown>;
+  /** Cards always resolve here. */
   onToken: (token: CheckoutToken) => void;
+  /**
+   * Yape and the other order-based methods resolve here. It means "the modal finished",
+   * not "the money arrived": confirm with `orders.get(id).state === "paid"` server-side.
+   */
   onOrder?: (order: { id: string }) => void;
   onError: (error: CheckoutError) => void;
 }
 
-/** Create and open the checkout; returns the instance for manual control. */
+/**
+ * Create and open the checkout; returns the instance for manual control.
+ *
+ * Checkout has no close event: nothing fires when the buyer dismisses the modal. Re-enable
+ * your pay button right after this returns, and reuse the pending order id on a retry.
+ */
 export function openCheckout(options: OpenCheckoutOptions): CulqiCheckoutInstance {
   if (typeof window === "undefined" || !window.CulqiCheckout) {
     throw new Error("Culqi checkout script not loaded; call loadCheckoutScript() first");

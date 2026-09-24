@@ -46,10 +46,11 @@ Server ── token + sk ──> Culqi API ──> charge / saved card / ...
 
 | You need | Flow | Sync? |
 |---|---|---|
-| Charge a card or Yape now | `charges.create` | Yes — response is final |
+| Charge a card now | `charges.create` | Yes — response is final |
 | Hold now, charge on approval | `charges.create({ capture: false })` → `charges.capture` | Yes |
 | Money back / release a hold | `refunds.create` | Yes (bank settlement takes days in prod) |
 | One-click repeat payments | `customers` + `cards`, then charge with `crd_...` | Yes |
+| Show Yape / wallets / Cuotéalo in Checkout | `orders.create` **first**, then open Checkout with that `ord_...` | Order resolves — see recipe 3 |
 | Cash / bank-app payments (PagoEfectivo etc.) | `orders.create` + webhook | **No — webhook or polling required** |
 | Recurring billing | `plans` + `subscriptions` (under `/v2/recurrent/`) | — |
 
@@ -101,7 +102,62 @@ For card/Yape charges you do NOT need a webhook to know the payment happened —
 the synchronous response is authoritative. Webhooks are the safety net for
 "my server crashed between charging and persisting".
 
-### 3. Pre-authorization: hold now, charge on approval
+### 3. Yape (and every non-card method): the order gates the UI
+
+`paymentMethods: { yape: true }` is **not** enough — it is already the SDK default.
+If Checkout opens without `settings.order`, the modal renders card fields only, no tabs.
+Culqi says it plainly: *"si el parámetro order se encuentra vacío, solamente mostrará pago con
+tarjetas"*.
+
+So the order comes first, on the server:
+
+```ts
+const order = await culqi.orders.create({
+  amount: 1200,            // >= 600. Below that: "El valor debe ser mayor o igual que '600'"
+  currency_code: "PEN",
+  description: "Marco de dos flores",
+  order_number: myOrderId, // your id; it comes back in the webhook
+  expiration_date: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
+  client_details: {
+    first_name, last_name, email,
+    phone_number: "9XXXXXXXX", // required -> your UI must ask for a phone
+  },
+  metadata: { pedido: myOrderId },
+});
+```
+
+Then hand it to Checkout. Card and Yape now share one modal, but they finish through
+**different callbacks**:
+
+```ts
+openCheckout({
+  publicKey, title: "My Store", amount: 1200, currency: "PEN",
+  orderId: order.id,                        // this is what makes the Yape tab appear
+  paymentMethods: { tarjeta: true, yape: true },
+  onToken: (token) => chargeOnServer(token.id),   // card -> charges.create, as always
+  onOrder: () => confirmOrderOnServer(myOrderId), // Yape -> the ORDER got paid
+  onError: (err) => show(err.user_message),
+});
+```
+
+`onOrder` only tells you the modal finished; it is not proof of payment. Ask the API:
+
+```ts
+const fresh = await culqi.orders.get(order.id);
+if (fresh.state === "paid") markPaid(myOrderId); // idempotent: the webhook may arrive too
+```
+
+Consequences worth planning for:
+
+- **Minimum S/ 6.00.** A S/ 5.00 product cannot offer Yape at all. Either raise the price or
+  hide the method for that item.
+- **You need a phone number** before opening Checkout. Ask for it as an optional field and
+  create the order only when it is there; with no phone, offer cards.
+- **Orphan orders are normal.** A buyer who picks the card tab leaves the order unpaid, and one
+  who closes the modal leaves it too. Reuse the same order while the cart does not change, and
+  let it expire.
+
+### 4. Pre-authorization: hold now, charge on approval
 
 ```ts
 const hold = await culqi.charges.create({ ...params, capture: false });
@@ -121,7 +177,7 @@ Cards only — Yape does not support pre-authorization. Holds expire (industry
 norm ~7 days; confirm the exact window with Culqi for production). The
 customer sees the amount held from step 1: say so in your UI.
 
-### 4. One-click payments (card-on-file)
+### 5. One-click payments (card-on-file)
 
 **First purchase** — the user checks out normally and opts in to saving the
 card ("remember this card"). Save the token as a card first, then charge the
@@ -155,7 +211,7 @@ Notes (verified against the integration environment):
 - Only save the card with explicit user consent, and store nothing but the
   `crd_...` / `cus_...` ids — the card lives in Culqi's vault.
 
-### 5. Webhooks (Culqi does NOT sign them)
+### 6. Webhooks (Culqi does NOT sign them)
 
 There is no HMAC signature header. Defend in two layers:
 
@@ -178,12 +234,34 @@ export async function handler(req: Request) {
 }
 ```
 
-Event types include `charge.creation.succeeded`, `refund.creation.succeeded`,
-`order.status.changed`. `data` may arrive as a JSON *string* —
-`parseWebhookEvent` handles both. Localhost is unreachable for Culqi: use a
-tunnel (ngrok/cloudflared) during development.
+**Subscribe to the right events in CulqiPanel.** This bites people:
+`order.creation.succeeded` fires when *you* create the order, before anyone pays, so on its
+own it never confirms anything. For money actually arriving you want:
 
-### 6. AES/RSA payload encryption (optional hardening)
+| Event | Fires when | Use it for |
+|---|---|---|
+| `order.status.changed` | the order is paid (or expires) | Yape, wallets, PagoEfectivo |
+| `charge.creation.succeeded` | a charge succeeds | safety net for cards |
+| `order.creation.succeeded` | you create the order | logging, nothing else |
+
+Write the handler so the event *type* barely matters — re-fetch and let the resource's state
+decide. Then whatever the panel is subscribed to, the result is the same:
+
+```ts
+const id = (event.data as { id?: string })?.id;
+if (event.type.startsWith("order.") && id) {
+  const order = await culqi.orders.get(id);
+  if (order.state === "paid") markPaid(order.id); // idempotent
+} else if (event.type.startsWith("charge.") && id) {
+  const charge = await culqi.charges.get(id);
+  if (charge.outcome?.type === "venta_exitosa") markPaid(charge.metadata?.pedido);
+}
+```
+
+`data` may arrive as a JSON *string* — `parseWebhookEvent` handles both. Localhost is
+unreachable for Culqi: use a tunnel (ngrok/cloudflared) during development.
+
+### 7. AES/RSA payload encryption (optional hardening)
 
 Culqi supports encrypting request payloads on top of TLS
 (https://docs.culqi.com/es/documentacion/pagos-online/llaves_rsa/). Generate
@@ -218,9 +296,61 @@ if the merchant has RSA keys configured in the panel.
   `tokenId` is a double charge. Culqi documents no idempotency-key header;
   dedupe server-side by your own order/booking id before calling
   `charges.create`, and disable the pay button after the first click.
+- **Test and live are separate universes.** An `ord_test_...` fetched with an `sk_live_` key
+  answers *"No existe el siguiente order_id"*. That error usually means mixed environments, not
+  a missing resource.
+- **There is no close event.** Checkout never tells you the buyer dismissed the modal, and the
+  SDK has no `onClose`. Re-enable your pay button right after `openCheckout` returns, and keep
+  the pending order id around so a retry reuses it instead of creating another one.
+- **`NEXT_PUBLIC_*` keys are inlined at build time.** If your Docker image builds without the
+  env (Dokploy, Railway, most CI), the public key ends up `undefined` in the bundle. Read it in
+  a server component and pass it down as a prop.
 - **3DS**: in production some issuers require it; the charge response asks for
   authentication and you retry with `authentication_3DS` fields. See
   https://docs.culqi.com/ (Culqi 3DS).
+
+## Automating the checkout in end-to-end tests
+
+The modal lives in an iframe at `https://checkoutview.culqi.com/`, and its inputs have no
+stable names — target the placeholders (Playwright):
+
+```ts
+await page.click("text=Pagar S/");
+await page.waitForTimeout(5000);                       // the iframe mounts late
+const form = page.frames().find((f) => /culqi/.test(f.url()))!;
+await form.getByPlaceholder("#### #### #### ####").fill("4111111111111111");
+await form.getByPlaceholder("MM/AA").fill("12/30");
+await form.getByPlaceholder("CVV").fill("123");
+await form.getByRole("button", { name: /Pagar/i }).first().click();
+```
+
+Checking which methods the modal offers is one line — handy to assert that your order made the
+Yape tab appear:
+
+```ts
+console.log(await form.locator("body").innerText());
+// "… | Tarjeta débito / crédito | Yape | …"  -> order was accepted
+// "… | Número de Tarjeta | …"                -> no order: cards only
+```
+
+Yape itself cannot be automated: it asks for a real phone and its app code.
+
+## Getting the merchant account approved (Peru)
+
+Culqi reviews the live site before enabling live keys, and rejects on content, not on code.
+What they check:
+
+- **Five products minimum**, each with photo, clear description and visible price. Services can
+  be fewer, depending on the business.
+- **A cart or a buy button**, and test credentials (user and password) if the flow needs login.
+- **Contact data visible**: phone, email, address. Social icons, if any, must link to real
+  accounts.
+- **Terms and conditions** and a **returns/exchange policy**.
+- **Libro de Reclamaciones built into the site**, per INDECOPI — not a Google Form, not a PDF,
+  not an external link.
+- **SSL on every URL**, not only the home page.
+
+Plan for this early: it is a week of content and legal pages, and it blocks the live keys.
 
 ## Test cards (integration environment)
 
